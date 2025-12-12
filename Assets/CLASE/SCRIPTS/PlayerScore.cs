@@ -27,7 +27,8 @@ public class PlayerScore : NetworkBehaviour
         }
     }
 
-    public void AddScore(int points)
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_AddScore(int points)
     {
         if (Object.HasInputAuthority)
         {

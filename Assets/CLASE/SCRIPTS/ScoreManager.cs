@@ -25,25 +25,21 @@ public class ScoreManager : NetworkBehaviour
     [Networked] private PlayerRef Player1Ref { get; set; }
     [Networked] private PlayerRef Player2Ref { get; set; }
 
-    [Networked] private TickTimer victoryTimer { get; set; }
+    
     [Networked] private NetworkBool isVictoryActive { get; set; }
     [Networked] private PlayerRef winnerPlayerRef { get; set; }
     [Networked] private NetworkString<_32> winnerMessage { get; set; }
 
     private Dictionary<PlayerRef, PlayerScore> playerScoreComponents = new Dictionary<PlayerRef, PlayerScore>();
 
-    // Eventos para feedback visual/audio
-    public System.Action<PlayerRef> OnPlayerScored;
-    public System.Action<PlayerRef> OnVictoryAchieved;
+    
+    
 
     public override void Spawned()
     {
 
-        UpdateUI();
-
-
-
-        // Ocultar panel de victoria inicialmente
+        RPC_UpdateUI();
+        
         if (victoryPanel != null)
         {
             victoryPanel.SetActive(false);
@@ -63,17 +59,7 @@ public class ScoreManager : NetworkBehaviour
         }
     }
 
-    public override void FixedUpdateNetwork()
-    {
-        // Manejar temporizador de victoria
-        if (isVictoryActive && victoryTimer.Expired(Runner))
-        {
-            RPC_HideVictoryPanel();
-        }
-    }
-
-    // Registro de jugadores
-    public void RegisterPlayer(PlayerScore playerScore)
+    public void LocalRegisterPlayer(PlayerScore playerScore)
     {
         if (!playerScoreComponents.ContainsKey(playerScore.Object.InputAuthority))
         {
@@ -104,7 +90,8 @@ public class ScoreManager : NetworkBehaviour
         }
     }
 
-    public void PlayerHit(PlayerRef shooterRef, PlayerRef targetRef, int damage = 1)
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_PlayerHit(PlayerRef shooterRef, PlayerRef targetRef, int damage = 1)
     {
 
         RPC_ProcessHit(shooterRef, targetRef, damage);
@@ -114,18 +101,11 @@ public class ScoreManager : NetworkBehaviour
     private void RPC_ProcessHit(PlayerRef shooterRef, PlayerRef targetRef, int damage)
     {
 
-        // Verificar que el shooter sea un jugador válido
-        if (shooterRef != Player1Ref && shooterRef != Player2Ref)
-        {
-            Debug.LogWarning("Shooter no es un jugador registrado");
-            return;
-        }
 
 
         PlayerRef scoringPlayer = shooterRef;
         int pointsToAdd = 1; 
 
-        // Actualizar score
         if (scoringPlayer == Player1Ref)
         {
             Player1Score += pointsToAdd;
@@ -141,23 +121,22 @@ public class ScoreManager : NetworkBehaviour
 
         RPC_OnPlayerScored(scoringPlayer, pointsToAdd);
 
-        CheckVictoryCondition();
+        RPC_CheckVictoryCondition();
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     private void RPC_OnPlayerScored(PlayerRef playerRef, int points)
     {
-        // Feedback local cuando un jugador anota
-        OnPlayerScored?.Invoke(playerRef);
+        
 
         Debug.Log($"Jugador {GetPlayerName(playerRef)} anotó {points} puntos!");
     }
 
-    // Verificar condiciones de victoria
-    private void CheckVictoryCondition()
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    private void RPC_CheckVictoryCondition()
     {
 
-        int victoryScore = 1; // Puntos necesarios para ganar
+        int victoryScore = 1; 
         PlayerRef winner = PlayerRef.None;
         string message = "";
 
@@ -174,11 +153,11 @@ public class ScoreManager : NetworkBehaviour
 
         if (winner != PlayerRef.None)
         {
-            ShowVictory(winner, message);
+            LocalShowVictory(winner, message);
         }
     }
 
-    private void ShowVictory(PlayerRef winner, string message)
+    private void LocalShowVictory(PlayerRef winner, string message)
     {
 
         isVictoryActive = true;
@@ -196,13 +175,10 @@ public class ScoreManager : NetworkBehaviour
             victoryPanel.SetActive(true);
             victoryText.text = "¡VICTORIA!";
             winnerNameText.text = message;
+            RPC_HideVictoryPanel();
         }
 
-        OnVictoryAchieved?.Invoke(winner);
-
         Debug.Log($"VICTORIA: {message}");
-
-
 
     }
 
@@ -225,11 +201,12 @@ public class ScoreManager : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     private void RPC_UpdateAllClients()
     {
-        UpdateUI();
+        RPC_UpdateUI();
     }
 
 
-    private void UpdateUI()
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_UpdateUI()
     {
 
         bool isPlayer1Local = Runner.LocalPlayer == Player1Ref;
@@ -248,7 +225,7 @@ public class ScoreManager : NetworkBehaviour
             player2ScoreText.text = Player1Score.ToString();
         }
 
-        // Si hay jugadores esperando
+        
         if (Player1Ref == PlayerRef.None)
         {
 
@@ -262,7 +239,7 @@ public class ScoreManager : NetworkBehaviour
         }
     }
 
-    // Helper methods
+    
     private string GetPlayerName(PlayerRef playerRef)
     {
         if (playerRef == Player1Ref)
@@ -278,49 +255,6 @@ public class ScoreManager : NetworkBehaviour
         return "Desconocido";
     }
 
-    // Reiniciar juego
-    private void RequestRestartGame()
-    {
-        RPC_RequestRestart();
-    }
-
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    private void RPC_RequestRestart()
-    {
-        if (Runner.IsServer)
-        {
-            ResetGame();
-        }
-    }
-
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    private void RPC_ResetGame()
-    {
-        ResetGameLocal();
-    }
-
-    private void ResetGame()
-    {
-        Player1Score = 0;
-        Player2Score = 0;
-        isVictoryActive = false;
-
-        RPC_ResetGame();
-        RPC_UpdateAllClients();
-    }
-
-    private void ResetGameLocal()
-    {
-        if (victoryPanel != null)
-        {
-            victoryPanel.SetActive(false);
-        }
-
-        Time.timeScale = 1f;
-        UpdateUI();
-    }
-
-    // Getters públicos
     public int GetPlayerScore(PlayerRef playerRef)
     {
         if (playerRef == Player1Ref)
